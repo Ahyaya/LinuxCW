@@ -1,5 +1,5 @@
 /*
- *  This small demo sends a simple sinusoidal wave to your speakers.
+ *  K4 morse code trainer.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,18 +16,27 @@
 #include <linux/input.h>
 #include <pthread.h>
 
-#define INPUT_KEYBOARD "/dev/input/event3"
+#define INPUT_NODISP "stty -echo"
+#define INPUT_NORMAL "stty echo"
+#define MIN_TIME_DA 160000
+#define MAX_TIME_VAL 320000
+#define MAX_TIME_SPACE 320000
 
+#define INPUT_KEYBOARD "/dev/input/event3"
+#define KEYBOARD_CLEAR "sudo chmod +r /dev/input/event3"
+
+const char* const TriMorse = "?ET?IA?NM????SU?RW????DK?GO?????????????HV?F?????L??PJ?????????????BX?CY????ZQ";
 static char *device = "default";         /* playback device */
 static snd_pcm_format_t format = SND_PCM_FORMAT_S16;    /* sample format */
 static unsigned int rate = 44100;           /* stream rate */
 static unsigned int channels = 1;           /* count of channels */
-static unsigned int buffer_time = 50000;       /* ring buffer length in us */
-static unsigned int period_time = 10000;       /* period time in us */
+static unsigned int buffer_time = 10000;       /* ring buffer length in us */
+static unsigned int period_time = 2000;       /* period time in us */
 static double freq = 700;               /* sinusoidal wave frequency in Hz */
 static int resample = 1;                /* enable alsa-lib resampling */
 static int period_event = 0;                /* produce poll event after each period */
 volatile int OnWav = 0;
+volatile int m_Interrupt = 0;
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
 static snd_output_t *output = NULL;
@@ -246,7 +255,7 @@ static int write_loop(snd_pcm_t *handle,
     double phase = 0;
     signed short *ptr;
     int err, cptr;
-    while (1){
+    while (!m_Interrupt){
       while (OnWav){
         generate_sine(areas, 0, period_size, &phase);
         ptr = samples;
@@ -258,7 +267,7 @@ static int write_loop(snd_pcm_t *handle,
             if (err < 0) {
                 if (xrun_recovery(handle, err) < 0) {
                     printf("Write error: %s\n", snd_strerror(err));
-                    exit(EXIT_FAILURE);
+                    return -1;
                 }
                 break;  /* skip one period */
             }
@@ -266,7 +275,8 @@ static int write_loop(snd_pcm_t *handle,
             cptr -= err;
         }
       }
-    }
+    }printf("\nInterrupted by user.\n");
+    return 0;
 }
 
 
@@ -284,15 +294,16 @@ static struct transfer_method transfer_methods[] = {
 
 void * KeyDaemon_CW()
 {
-    int fd = -1, ret = -1;
+    int fd = -1, ret = -1, TN = 0;
     struct input_event ev;
-
-    fd = open(INPUT_KEYBOARD , O_RDONLY);
-    if(fd < 0) {
-        printf("open failed, error:%d\n", errno);
-        return 0;
+    struct timeval keyUp_time, keyDown_time, current_time;
+    if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
+        system(KEYBOARD_CLEAR);
+        if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
+        printf("cannot access keyboard, error:%d\n", errno);
+        return 0;}
     }
-
+    setbuf(stdout,NULL);
     while(1) {
         memset(&ev, 0, sizeof(struct input_event));
 
@@ -301,64 +312,58 @@ void * KeyDaemon_CW()
             printf("read error, ret: %d\n", ret);
             break;
         }
-
+        
         if (ev.type == EV_KEY) {
-            if(!OnWav){OnWav = 1;}
-            if(ev.value == 0){OnWav = 0;}
-            printf("--------------------\n");
-            //printf("type = %u.\n", ev.type); /* 消息类型，EV_KEY是按键 */
-            //printf("code = %u.\n", ev.code); /* 按键信息，/usr/include/linux/input-event-codes.h文件中有定义键值，例如KEY_ESC对应esc按键 */
-            printf("value = %u.\n", ev.value); /* 按键是按下还是释放，0释放、1按下、2长按 */
+            if(!OnWav){OnWav = 1;gettimeofday(&keyUp_time,NULL);}
+            if(ev.value == 0 && OnWav){OnWav = 0;gettimeofday(&keyDown_time,NULL);TN*=3;TN=(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<MIN_TIME_DA)?(TN+1):(TN+2);}
+            if(ev.code == 0x01){OnWav = 0;m_Interrupt = 1;break;}
         }
-    }
+        gettimeofday(&current_time,NULL);
 
+        if(TN && !OnWav && (1000000*(current_time.tv_sec-keyDown_time.tv_sec)+(current_time.tv_usec-keyDown_time.tv_usec)>MAX_TIME_VAL)){putchar(TriMorse[TN]);TN=0;}
+
+    }
     close(fd);
     return 0;
 }
 
-int main(int argc, char *argv[])
+int SoundDaemon_mod(int method)
 {    
     snd_pcm_t *handle;
-    int err, rc;
+    int err;
     snd_pcm_hw_params_t *hwparams;
     snd_pcm_sw_params_t *swparams;
-    int method = 0;
     signed short *samples;
     unsigned int chn;
     snd_pcm_channel_area_t *areas;
     snd_pcm_hw_params_alloca(&hwparams);
     snd_pcm_sw_params_alloca(&swparams);
-    pthread_t CW_pid;
-
-    rc = pthread_create(&CW_pid, NULL, KeyDaemon_CW, NULL);
-    err = snd_output_stdio_attach(&output, stdout, 0);
-    if (err < 0) {
+    
+    if ((err = snd_output_stdio_attach(&output, stdout, 0)) < 0) {
         printf("Output failed: %s\n", snd_strerror(err));
-        return 0;
+        return -1;
     }
     if ((err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
         printf("Playback open error: %s\n", snd_strerror(err));
-        return 0;
+        return -1;
     }
     
     if ((err = set_hwparams(handle, hwparams, transfer_methods[method].access)) < 0) {
         printf("Setting of hwparams failed: %s\n", snd_strerror(err));
-        exit(EXIT_FAILURE);
+        return -1;
     }
     if ((err = set_swparams(handle, swparams)) < 0) {
         printf("Setting of swparams failed: %s\n", snd_strerror(err));
-        exit(EXIT_FAILURE);
+        return -1;
     }
     samples = malloc((period_size * channels * snd_pcm_format_physical_width(format)) / 8);
     if (samples == NULL) {
         printf("No enough memory\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
-    
-    areas = calloc(channels, sizeof(snd_pcm_channel_area_t));
-    if (areas == NULL) {
+    if ((areas = calloc(channels, sizeof(snd_pcm_channel_area_t))) == NULL) {
         printf("No enough memory\n");
-        exit(EXIT_FAILURE);
+        return -1;
     }
     for (chn = 0; chn < channels; chn++) {
         areas[chn].addr = samples;
@@ -371,6 +376,28 @@ int main(int argc, char *argv[])
     }
     free(areas);
     free(samples);
-    snd_pcm_close(handle);
+    snd_pcm_close(handle);printf("SoundDaemon closed.\n");
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    int rc, rp, countpf;
+    pthread_t CW_pid;
+
+    for(countpf=3;countpf>0;countpf--){printf("Record will start in %d sec, please get ready...\n",countpf);sleep(1);}
+    
+    system(INPUT_NODISP);
+
+    if((rc = pthread_create(&CW_pid, NULL, KeyDaemon_CW, NULL))<0){
+        printf("Fail to create KeyDaemon thread.\n");
+    }
+    if((rp = SoundDaemon_mod(0))<0){
+        printf("SoundDaemon quit with errors.\n");
+    }
+    pthread_join(CW_pid,NULL);printf("KeyDaemon closed.\n");
+    printf("Bye HAM.\n");
+
+    system(INPUT_NORMAL);
     return 0;
 }
