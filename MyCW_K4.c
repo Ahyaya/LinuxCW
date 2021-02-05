@@ -1,5 +1,5 @@
 /*
- *  K4 morse code trainer v1.02.
+ *  K4 morse code trainer v1.05.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +26,9 @@
 #define KEYBOARD_CLEAR "sudo chmod +r /dev/input/event3"
 
 const char* const TriMorse = "?ET?IA?NM????SU?RW????DK?GO?????????????HV?F?????L??PJ?????????????BX?CY????ZQ";
+const char* const PntaCode = "09?8???7?????/?61???????2???3?45";
+const char* const HexaCode = "????????????,?????()!;???????????'???@????.???????_?????????????????????????????????????????????????????????????????????????????";
+
 static char *device = "default";         /* playback device */
 static snd_pcm_format_t format = SND_PCM_FORMAT_S16;    /* sample format */
 static unsigned int rate = 44100;           /* stream rate */
@@ -37,7 +40,7 @@ static int resample = 1;                /* enable alsa-lib resampling */
 static int period_event = 0;                /* produce poll event after each period */
 volatile int OnWav = 0;
 volatile int m_Interrupt = 0;
-int TN = 0;
+static int TriNum = 0, BinNum = 0, WordLen = 0;
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
 static snd_output_t *output = NULL;
@@ -321,9 +324,16 @@ void * KeyDaemon_CW()
             if(!OnWav){OnWav = 1;gettimeofday(&keyUp_time,NULL);}
             if(ev.value == 0 && OnWav){                
                 OnWav = 0;
+                WordLen++;
+                TriNum*=3;
+                BinNum*=2;
                 gettimeofday(&keyDown_time,NULL);
-                TN*=3;
-                TN=(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<MIN_TIME_DA)?(TN+1):(TN+2);                
+                if(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<MIN_TIME_DA){
+                    TriNum+=1;
+                    BinNum++;
+                }else{
+                    TriNum+=2;
+                }
             }
             if(ev.code == 0x01){OnWav = 0;m_Interrupt = 1;break;}
         }
@@ -336,15 +346,29 @@ void * KeyDaemon_CW()
 void * PrintDaemon()
 {
     long AFK_time;
-    int AFK_level = 1;
+    int AFK_level = 1, Bracket = 0;
     while(!m_Interrupt){
         pthread_mutex_lock(&mutex);
-        AFK_level=TN?0:AFK_level;
+        AFK_level=TriNum?0:AFK_level;
         if(!OnWav && !AFK_level){
             gettimeofday(&current_time,NULL);
             AFK_time = 1000000*(current_time.tv_sec-keyDown_time.tv_sec)+(current_time.tv_usec-keyDown_time.tv_usec);
-            if(TN && AFK_time>MAX_TIME_VAL){
-                putchar(TriMorse[TN]);TN=0;
+            if(WordLen && AFK_time>MAX_TIME_VAL){
+                if(WordLen<5){
+                    putchar(TriMorse[TriNum]);
+                }else if(WordLen==5){
+                    putchar(PntaCode[BinNum]);
+                }else if(WordLen==6){
+                    if(BinNum==18){
+                        putchar(HexaCode[BinNum+Bracket]);
+                        Bracket=(Bracket==0)?1:0;
+                    }else{
+                        putchar(HexaCode[BinNum]);
+                    }
+                }else{
+                    printf(" correction-> ");
+                }
+                WordLen=0;TriNum=0;BinNum=0;
             }
             if(AFK_time>MAX_TIME_SPACE){
                 putchar(' ');AFK_level=1;
