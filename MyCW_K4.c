@@ -1,5 +1,5 @@
 /*
- *  K4 morse code trainer.
+ *  K4 morse code trainer v1.02.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,8 +19,8 @@
 #define INPUT_NODISP "stty -echo"
 #define INPUT_NORMAL "stty echo"
 #define MIN_TIME_DA 160000
-#define MAX_TIME_VAL 320000
-#define MAX_TIME_SPACE 320000
+#define MAX_TIME_VAL 200000
+#define MAX_TIME_SPACE 400000
 
 #define INPUT_KEYBOARD "/dev/input/event3"
 #define KEYBOARD_CLEAR "sudo chmod +r /dev/input/event3"
@@ -37,9 +37,13 @@ static int resample = 1;                /* enable alsa-lib resampling */
 static int period_event = 0;                /* produce poll event after each period */
 volatile int OnWav = 0;
 volatile int m_Interrupt = 0;
+int TN = 0;
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
 static snd_output_t *output = NULL;
+struct timeval keyUp_time, keyDown_time, current_time;
+pthread_mutex_t mutex;
+
 static void generate_sine(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
               int count, double *_phase)
@@ -294,16 +298,16 @@ static struct transfer_method transfer_methods[] = {
 
 void * KeyDaemon_CW()
 {
-    int fd = -1, ret = -1, TN = 0;
+    int fd = -1, ret = -1;
     struct input_event ev;
-    struct timeval keyUp_time, keyDown_time, current_time;
+    
     if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
         system(KEYBOARD_CLEAR);
         if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
         printf("cannot access keyboard, error:%d\n", errno);
         return 0;}
     }
-    setbuf(stdout,NULL);
+    
     while(1) {
         memset(&ev, 0, sizeof(struct input_event));
 
@@ -312,18 +316,43 @@ void * KeyDaemon_CW()
             printf("read error, ret: %d\n", ret);
             break;
         }
-        
+        pthread_mutex_lock(&mutex);
         if (ev.type == EV_KEY) {
             if(!OnWav){OnWav = 1;gettimeofday(&keyUp_time,NULL);}
-            if(ev.value == 0 && OnWav){OnWav = 0;gettimeofday(&keyDown_time,NULL);TN*=3;TN=(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<MIN_TIME_DA)?(TN+1):(TN+2);}
+            if(ev.value == 0 && OnWav){                
+                OnWav = 0;
+                gettimeofday(&keyDown_time,NULL);
+                TN*=3;
+                TN=(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<MIN_TIME_DA)?(TN+1):(TN+2);                
+            }
             if(ev.code == 0x01){OnWav = 0;m_Interrupt = 1;break;}
         }
-        gettimeofday(&current_time,NULL);
-
-        if(TN && !OnWav && (1000000*(current_time.tv_sec-keyDown_time.tv_sec)+(current_time.tv_usec-keyDown_time.tv_usec)>MAX_TIME_VAL)){putchar(TriMorse[TN]);TN=0;}
-
+        pthread_mutex_unlock(&mutex);
     }
     close(fd);
+    return 0;
+}
+
+void * PrintDaemon()
+{
+    long AFK_time;
+    int AFK_level = 1;
+    while(!m_Interrupt){
+        pthread_mutex_lock(&mutex);
+        AFK_level=TN?0:AFK_level;
+        if(!OnWav && !AFK_level){
+            gettimeofday(&current_time,NULL);
+            AFK_time = 1000000*(current_time.tv_sec-keyDown_time.tv_sec)+(current_time.tv_usec-keyDown_time.tv_usec);
+            if(TN && AFK_time>MAX_TIME_VAL){
+                putchar(TriMorse[TN]);TN=0;
+            }
+            if(AFK_time>MAX_TIME_SPACE){
+                putchar(' ');AFK_level=1;
+            }
+        }
+        pthread_mutex_unlock(&mutex);
+        usleep(5000);
+    }
     return 0;
 }
 
@@ -382,21 +411,30 @@ int SoundDaemon_mod(int method)
 
 int main(int argc, char *argv[])
 {
-    int rc, rp, countpf;
-    pthread_t CW_pid;
+    int rc, rp, rs, countpf;
+    pthread_t CW_pid, SC_pid;
+
+    pthread_mutex_init(&mutex,NULL);//initiate lock for global interchange.
 
     for(countpf=3;countpf>0;countpf--){printf("Record will start in %d sec, please get ready...\n",countpf);sleep(1);}
-    
+    setbuf(stdout,NULL);
     system(INPUT_NODISP);
 
+    printf("\nYour scripts:\n\n");
     if((rc = pthread_create(&CW_pid, NULL, KeyDaemon_CW, NULL))<0){
         printf("Fail to create KeyDaemon thread.\n");
     }
-    if((rp = SoundDaemon_mod(0))<0){
+    if((rp = pthread_create(&SC_pid, NULL, PrintDaemon, NULL))<0){
+        printf("Fail to create PrintDaemon thread.\n");
+    }
+    if((rs = SoundDaemon_mod(0))<0){
         printf("SoundDaemon quit with errors.\n");
     }
+    
+    pthread_join(SC_pid,NULL);printf("PrintDaemon closed.\n");
     pthread_join(CW_pid,NULL);printf("KeyDaemon closed.\n");
-    printf("Bye HAM.\n");
+    pthread_mutex_destroy(&mutex);
+    printf("TU OM GB 73.\n");
 
     system(INPUT_NORMAL);
     return 0;
