@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.07.
+ *  LinuxCW K4 morse code trainer v1.08.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +20,7 @@
 #define INPUT_NORMAL "stty echo"
 #define MIN_TIME_DA 160000
 #define MAX_TIME_VAL 200000
-#define MAX_TIME_SPACE 400000
+#define MAX_TIME_SPACE 500000
 
 #define INPUT_KEYBOARD "/dev/input/event3"
 
@@ -32,8 +32,8 @@ static char *device = "default";         /* playback device */
 static snd_pcm_format_t format = SND_PCM_FORMAT_S16;    /* sample format */
 static unsigned int rate = 44100;           /* stream rate */
 static unsigned int channels = 1;           /* count of channels */
-static unsigned int buffer_time = 10000;       /* ring buffer length in us */
-static unsigned int period_time = 2000;       /* period time in us */
+static unsigned int buffer_time = 5000;       /* ring buffer length in us */
+static unsigned int period_time = 1000;       /* period time in us */
 static double freq = 700;               /* sinusoidal wave frequency in Hz */
 static int resample = 1;                /* enable alsa-lib resampling */
 static int period_event = 0;                /* produce poll event after each period */
