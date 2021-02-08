@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.11.
+ *  LinuxCW K4 morse code trainer v1.15.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +22,9 @@
 #define MAX_TIME_VAL 200000
 #define MAX_TIME_SPACE 500000
 
-#define INPUT_KEYBOARD "/dev/input/event3"
+#define INPUT_KEYBOARD "/dev/input/event"
+
+int EVENTnum = 3, usec_DI = 80000, usec_DA = 250000, usec_SGap = 50000, usec_BGap = 320000;
 
 const char* const TriMorse = "?ET?IA?NM????SU?RW????DK?GO?????????????HV?F?????L??PJ?????????????BX?CY????ZQ";
 const char* const PntaCode = "09?8???7?????/?61???????2???3?45";
@@ -34,7 +36,7 @@ static unsigned int rate = 44100;           /* stream rate */
 static unsigned int channels = 1;           /* count of channels */
 static unsigned int buffer_time = 5000;       /* ring buffer length in us */
 static unsigned int period_time = 1000;       /* period time in us */
-static double freq = 750;               /* sinusoidal wave frequency in Hz */
+static double freq = 750;               /* tone frequency in Hz */
 static int resample = 1;                /* enable alsa-lib resampling */
 static int period_event = 0;                /* produce poll event after each period */
 volatile int OnWav = 0;
@@ -46,6 +48,8 @@ static snd_pcm_sframes_t period_size;
 static snd_output_t *output = NULL;
 struct timeval keyUp_time, keyDown_time, current_time;
 pthread_mutex_t mutex;
+void * ReadFile_AK();
+char filename[64];
 
 static void generate_sine(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
@@ -266,10 +270,25 @@ static int write_loop(snd_pcm_t *handle,
             cptr -= err;
         }
       }
-    }printf("\n=============================\nInterrupted by user.\n");
+    }printf("\n=============================\n");
     return 0;
 }
 
+static int write_from_file(snd_pcm_t *handle,
+              signed short *samples,
+              snd_pcm_channel_area_t *areas)
+{
+    int rf;
+    pthread_t RF_pid;
+    OnWav = 0;m_Interrupt = 0;
+    if((rf = pthread_create(&RF_pid, NULL, ReadFile_AK, NULL))<0){
+        printf("[!] Fail to create AutoKey thread.\n");
+    }
+    write_loop(handle,samples,areas);
+    pthread_join(RF_pid,NULL);printf("[-] AutoKey closed.\n");
+    OnWav = 0;m_Interrupt = 0;
+    return 0;
+}
 
 struct transfer_method {
     const char *name;
@@ -280,20 +299,231 @@ struct transfer_method {
 };
 static struct transfer_method transfer_methods[] = {
     { "write", SND_PCM_ACCESS_RW_INTERLEAVED, write_loop },
+    { "write", SND_PCM_ACCESS_RW_INTERLEAVED, write_from_file },
     { NULL, SND_PCM_ACCESS_RW_INTERLEAVED, NULL }
 };
 
+int PressKey(int usec)
+{
+   OnWav=1;usleep(usec);OnWav=0;
+   return 0;
+}
+
+void * ReadFile_AK()
+{
+    FILE *fin;
+    char letter;
+    if((fin=fopen(filename,"r"))==NULL){
+        printf("Unable to read file.\n");return 0;
+    }
+    while((letter=fgetc(fin))!=EOF){
+      switch(letter){
+      case 'A':
+      case 'a':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('A');usleep(usec_BGap);
+        break;
+      case 'B':
+      case 'b':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('B');usleep(usec_BGap);
+        break;
+      case 'C':
+      case 'c':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('C');usleep(usec_BGap);
+        break;
+      case 'D':
+      case 'd':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('D');usleep(usec_BGap);
+        break;
+      case 'E':
+      case 'e':
+        PressKey(usec_DI);
+        putchar('E');usleep(usec_BGap);
+        break;
+      case 'F':
+      case 'f':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('F');usleep(usec_BGap);
+        break;
+      case 'G':
+      case 'g':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('G');usleep(usec_BGap);
+        break;
+      case 'H':
+      case 'h':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('H');usleep(usec_BGap);
+        break;
+      case 'I':
+      case 'i':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('I');usleep(usec_BGap);
+        break;
+      case 'J':
+      case 'j':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('J');usleep(usec_BGap);
+        break;
+      case 'K':
+      case 'k':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('K');usleep(usec_BGap);
+        break;
+      case 'L':
+      case 'l':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('L');usleep(usec_BGap);
+        break;
+      case 'M':
+      case 'm':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('M');usleep(usec_BGap);
+        break;
+      case 'N':
+      case 'n':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('N');usleep(usec_BGap);
+        break;
+      case 'O':
+      case 'o':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('O');usleep(usec_BGap);
+        break;
+      case 'P':
+      case 'p':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('P');usleep(usec_BGap);
+        break;
+      case 'Q':
+      case 'q':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('Q');usleep(usec_BGap);
+        break;
+      case 'R':
+      case 'r':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('R');usleep(usec_BGap);
+        break;
+      case 'S':
+      case 's':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('S');usleep(usec_BGap);
+        break;
+      case 'T':
+      case 't':
+        PressKey(usec_DA);
+        putchar('T');usleep(usec_BGap);
+        break;
+      case 'U':
+      case 'u':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('U');usleep(usec_BGap);
+        break;
+      case 'V':
+      case 'v':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('V');usleep(usec_BGap);
+        break;
+      case 'W':
+      case 'w':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('W');usleep(usec_BGap);
+        break;
+      case 'X':
+      case 'x':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('X');usleep(usec_BGap);
+        break;
+      case 'Y':
+      case 'y':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar('Y');usleep(usec_BGap);
+        break;
+      case 'Z':
+      case 'z':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar('Z');usleep(usec_BGap);
+        break;
+      case '0':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '1':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '2':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '3':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '4':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '5':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '6':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '7':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '8':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '9':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '/':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case ',':
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);
+        PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      case '?':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
+        putchar(letter);usleep(usec_BGap);
+        break;
+      default:
+        putchar(letter);
+        usleep(usec_BGap);
+        break;
+      }
+    }
+    m_Interrupt=1;OnWav=0;
+    fclose(fin);
+    return 0;
+}
+
 void * KeyDaemon_CW()
 {
-    char access_KB[32];
+    char access_KB[32], full_INPUT[64];
     int fd = -1, ret = -1;
     struct input_event ev;
-    
-    if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
-        sprintf(access_KB,"%s%s","sudo chmod +r ",INPUT_KEYBOARD);
+    sprintf(full_INPUT,"%s%d",INPUT_KEYBOARD,EVENTnum);
+    if((fd = open(full_INPUT, O_RDONLY)) < 0) {
+        sprintf(access_KB,"%s%s","sudo chmod +r ",full_INPUT);
         printf("LinuxCW needs sudo to access your keyboard input.\n");
         system(access_KB);
-        if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
+        if((fd = open(full_INPUT, O_RDONLY)) < 0) {
         printf("[!] cannot access keyboard, error:%d\n", errno);
         return 0;}
         printf("Validated!\n");
@@ -440,13 +670,53 @@ void * getEnter()
 
 int main(int argc, char *argv[])
 {
-    int rc, rp, rb, rs, countpf;
+    setbuf(stdout,NULL);
+    struct option long_option[] =
+    {
+        {"help", 0, NULL, 'h'},
+        {"event", 1, NULL, 'e'},
+        {"rate", 1, NULL, 'r'},
+        {"frequency", 1, NULL, 'f'},
+        {"input", 1, NULL, 'i'},
+        {NULL, 0, NULL, 0}
+    };
+
+    int rc, rp, rb, rs, countpf, Copt;
     pthread_t CW_pid, SC_pid, BL_pid;
+
+    while (1) {
+        if ((Copt = getopt_long(argc, argv, "he:r:f:i:", long_option, NULL)) < 0)
+            break;
+        switch (Copt) {
+        case 'h':
+            printf("Usage: %s [-option] [args]...\n",argv[0]);
+            return 0;
+        case 'e':
+            EVENTnum = atoi(optarg);
+            EVENTnum < 0 ? 0 : EVENTnum;
+            break;
+        case 'r':
+            rate = atoi(optarg);
+            rate = rate < 4000 ? 4000 : rate;
+            rate = rate > 196000 ? 196000 : rate;
+            break;
+        case 'f':
+            freq = atoi(optarg);
+            freq = freq < 250 ? 250 : freq;
+            freq = freq > 1000 ? 1000 : freq;
+            break;
+        case 'i':
+            sprintf(filename,"%s",optarg);
+            SoundDaemon_mod(1);
+            return 0;
+        }
+    }
+
 
     pthread_mutex_init(&mutex,NULL);//initiate lock for global interchange.
 
     for(countpf=3;countpf>0;countpf--){printf("Record will start in %d sec, please get ready...\n",countpf);sleep(1);}
-    setbuf(stdout,NULL);
+
     system(INPUT_NODISP);
 
 
@@ -465,11 +735,9 @@ int main(int argc, char *argv[])
     if((rs = SoundDaemon_mod(0))<0){
         printf("[!] SoundDaemon quit with errors.\n");
     }
-
-    pthread_join(SC_pid,NULL);printf("[-] PrintDaemon closed.\n");
-    pthread_mutex_destroy(&mutex);
-
-    pthread_join(BL_pid,NULL);printf("[-] KeyBlocker closed.\n");
     system(INPUT_NORMAL);
+    pthread_join(SC_pid,NULL);printf("[-] PrintDaemon closed.\n");
+    pthread_join(BL_pid,NULL);printf("[-] KeyBlocker closed.\n");
+    pthread_mutex_destroy(&mutex);
     return 0;
 }
