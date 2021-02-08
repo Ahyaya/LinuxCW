@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.08.
+ *  LinuxCW K4 morse code trainer v1.11.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +26,7 @@
 
 const char* const TriMorse = "?ET?IA?NM????SU?RW????DK?GO?????????????HV?F?????L??PJ?????????????BX?CY????ZQ";
 const char* const PntaCode = "09?8???7?????/?61???????2???3?45";
-const char* const HexaCode = "????????????,?????()!;???????????'???@????.???????_?????????????????????????????????????????????????????????????????????????????";
+const char* const HexaCode = "????????????,?????()!;???????????'???@????.???????_????????????\n\0";
 
 static char *device = "default";         /* playback device */
 static snd_pcm_format_t format = SND_PCM_FORMAT_S16;    /* sample format */
@@ -34,11 +34,12 @@ static unsigned int rate = 44100;           /* stream rate */
 static unsigned int channels = 1;           /* count of channels */
 static unsigned int buffer_time = 5000;       /* ring buffer length in us */
 static unsigned int period_time = 1000;       /* period time in us */
-static double freq = 700;               /* sinusoidal wave frequency in Hz */
+static double freq = 750;               /* sinusoidal wave frequency in Hz */
 static int resample = 1;                /* enable alsa-lib resampling */
 static int period_event = 0;                /* produce poll event after each period */
 volatile int OnWav = 0;
 volatile int m_Interrupt = 0;
+static int KeyEventAccess = 0;
 static int TriNum = 0, BinNum = 0, WordLen = 0;
 static snd_pcm_sframes_t buffer_size;
 static snd_pcm_sframes_t period_size;
@@ -118,62 +119,62 @@ static int set_hwparams(snd_pcm_t *handle,
     int err, dir;
     /* choose all parameters */
     if ((err = snd_pcm_hw_params_any(handle, params)) < 0) {
-        printf("Broken configuration for playback: no configurations available: %s\n", snd_strerror(err));
+        printf("[!] Broken configuration for playback: no configurations available: %s\n", snd_strerror(err));
         return err;
     }
     /* set hardware resampling */
     if ((err = snd_pcm_hw_params_set_rate_resample(handle, params, resample)) < 0) {
-        printf("Resampling setup failed for playback: %s\n", snd_strerror(err));
+        printf("[!] Resampling setup failed for playback: %s\n", snd_strerror(err));
         return err;
     }
     /* set the interleaved read/write format */
     if ((err = snd_pcm_hw_params_set_access(handle, params, access)) < 0) {
-        printf("Access type not available for playback: %s\n", snd_strerror(err));
+        printf("[!] Access type not available for playback: %s\n", snd_strerror(err));
         return err;
     }
     /* set the sample format */
     if ((err = snd_pcm_hw_params_set_format(handle, params, format)) < 0) {
-        printf("Sample format not available for playback: %s\n", snd_strerror(err));
+        printf("[!] Sample format not available for playback: %s\n", snd_strerror(err));
         return err;
     }
     /* set the count of channels */
     if ((err = snd_pcm_hw_params_set_channels(handle, params, channels)) < 0) {
-        printf("Channels count (%u) not available for playbacks: %s\n", channels, snd_strerror(err));
+        printf("[!] Channels count (%u) not available for playbacks: %s\n", channels, snd_strerror(err));
         return err;
     }
     /* set the stream rate */
     rrate = rate;
     if ((err = snd_pcm_hw_params_set_rate_near(handle, params, &rrate, 0)) < 0) {
-        printf("Rate %uHz not available for playback: %s\n", rate, snd_strerror(err));
+        printf("[!] Rate %uHz not available for playback: %s\n", rate, snd_strerror(err));
         return err;
     }
     if (rrate != rate) {
-        printf("Rate doesn't match (requested %uHz, get %iHz)\n", rate, err);
+        printf("[!] Rate doesn't match (requested %uHz, get %iHz)\n", rate, err);
         return -EINVAL;
     }
     /* set the buffer time */
     if ((err = snd_pcm_hw_params_set_buffer_time_near(handle, params, &buffer_time, &dir)) < 0) {
-        printf("Unable to set buffer time %u for playback: %s\n", buffer_time, snd_strerror(err));
+        printf("[!] Unable to set buffer time %u for playback: %s\n", buffer_time, snd_strerror(err));
         return err;
     }
     if ((err = snd_pcm_hw_params_get_buffer_size(params, &size)) < 0) {
-        printf("Unable to get buffer size for playback: %s\n", snd_strerror(err));
+        printf("[!] Unable to get buffer size for playback: %s\n", snd_strerror(err));
         return err;
     }
     buffer_size = size;
     /* set the period time */
     if ((err = snd_pcm_hw_params_set_period_time_near(handle, params, &period_time, &dir)) < 0) {
-        printf("Unable to set period time %u for playback: %s\n", period_time, snd_strerror(err));
+        printf("[!] Unable to set period time %u for playback: %s\n", period_time, snd_strerror(err));
         return err;
     }
     if ((err = snd_pcm_hw_params_get_period_size(params, &size, &dir)) < 0) {
-        printf("Unable to get period size for playback: %s\n", snd_strerror(err));
+        printf("[!] Unable to get period size for playback: %s\n", snd_strerror(err));
         return err;
     }
     period_size = size;
     /* write the parameters to device */
     if ((err = snd_pcm_hw_params(handle, params)) < 0) {
-        printf("Unable to set hw params for playback: %s\n", snd_strerror(err));
+        printf("[!] Unable to set hw params for playback: %s\n", snd_strerror(err));
         return err;
     }
     return 0;
@@ -182,37 +183,32 @@ static int set_swparams(snd_pcm_t *handle, snd_pcm_sw_params_t *swparams)
 {
     int err;
     /* get the current swparams */
-    err = snd_pcm_sw_params_current(handle, swparams);
-    if (err < 0) {
-        printf("Unable to determine current swparams for playback: %s\n", snd_strerror(err));
+    if ((err = snd_pcm_sw_params_current(handle, swparams)) < 0) {
+        printf("[!] Unable to determine current swparams for playback: %s\n", snd_strerror(err));
         return err;
     }
     /* start the transfer when the buffer is almost full: */
     /* (buffer_size / avail_min) * avail_min */
-    err = snd_pcm_sw_params_set_start_threshold(handle, swparams, (buffer_size / period_size) * period_size);
-    if (err < 0) {
-        printf("Unable to set start threshold mode for playback: %s\n", snd_strerror(err));
+    if ((err = snd_pcm_sw_params_set_start_threshold(handle, swparams, (buffer_size / period_size) * period_size)) < 0) {
+        printf("[!] Unable to set start threshold mode for playback: %s\n", snd_strerror(err));
         return err;
     }
     /* allow the transfer when at least period_size samples can be processed */
     /* or disable this mechanism when period event is enabled (aka interrupt like style processing) */
-    err = snd_pcm_sw_params_set_avail_min(handle, swparams, period_event ? buffer_size : period_size);
-    if (err < 0) {
-        printf("Unable to set avail min for playback: %s\n", snd_strerror(err));
+    if ((err = snd_pcm_sw_params_set_avail_min(handle, swparams, period_event ? buffer_size : period_size)) < 0) {
+        printf("[!] Unable to set avail min for playback: %s\n", snd_strerror(err));
         return err;
     }
     /* enable period events when requested */
     if (period_event) {
-        err = snd_pcm_sw_params_set_period_event(handle, swparams, 1);
-        if (err < 0) {
-            printf("Unable to set period event: %s\n", snd_strerror(err));
+        if ((err = snd_pcm_sw_params_set_period_event(handle, swparams, 1)) < 0) {
+            printf("[!] Unable to set period event: %s\n", snd_strerror(err));
             return err;
         }
     }
     /* write the parameters to the playback device */
-    err = snd_pcm_sw_params(handle, swparams);
-    if (err < 0) {
-        printf("Unable to set sw params for playback: %s\n", snd_strerror(err));
+    if ((err = snd_pcm_sw_params(handle, swparams)) < 0) {
+        printf("[!] Unable to set sw params for playback: %s\n", snd_strerror(err));
         return err;
     }
     return 0;
@@ -226,7 +222,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
     if (err == -EPIPE) {    /* under-run */
         err = snd_pcm_prepare(handle);
         if (err < 0)
-            printf("Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
+            printf("[!] Can't recovery from underrun, prepare failed: %s\n", snd_strerror(err));
         return 0;
     } else if (err == -ESTRPIPE) {
         while ((err = snd_pcm_resume(handle)) == -EAGAIN)
@@ -234,7 +230,7 @@ static int xrun_recovery(snd_pcm_t *handle, int err)
         if (err < 0) {
             err = snd_pcm_prepare(handle);
             if (err < 0)
-                printf("Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
+                printf("[!] Can't recovery from suspend, prepare failed: %s\n", snd_strerror(err));
         }
         return 0;
     }
@@ -261,7 +257,7 @@ static int write_loop(snd_pcm_t *handle,
                 continue;
             if (err < 0) {
                 if (xrun_recovery(handle, err) < 0) {
-                    printf("Write error: %s\n", snd_strerror(err));
+                    printf("[!] Write error: %s\n", snd_strerror(err));
                     return -1;
                 }
                 break;  /* skip one period */
@@ -270,7 +266,7 @@ static int write_loop(snd_pcm_t *handle,
             cptr -= err;
         }
       }
-    }printf("\nInterrupted by user.\n");
+    }printf("\n=============================\nInterrupted by user.\n");
     return 0;
 }
 
@@ -298,12 +294,12 @@ void * KeyDaemon_CW()
         printf("LinuxCW needs sudo to access your keyboard input.\n");
         system(access_KB);
         if((fd = open(INPUT_KEYBOARD , O_RDONLY)) < 0) {
-        printf("cannot access keyboard, error:%d\n", errno);
+        printf("[!] cannot access keyboard, error:%d\n", errno);
         return 0;}
         printf("Validated!\n");
-        sleep(1);
     }
-    
+    KeyEventAccess = 1;
+    sleep(1);
     while(1) {
         memset(&ev, 0, sizeof(struct input_event));
 
@@ -314,7 +310,7 @@ void * KeyDaemon_CW()
         }
         pthread_mutex_lock(&mutex);
         if (ev.type == EV_KEY) {
-            if(!OnWav){OnWav = 1;gettimeofday(&keyUp_time,NULL);}
+            if(!OnWav && (ev.code!=0x1C) && (ev.code!=0x01)){OnWav = 1;gettimeofday(&keyUp_time,NULL);}
             if(ev.value == 0 && OnWav){                
                 OnWav = 0;
                 WordLen++;
@@ -328,7 +324,6 @@ void * KeyDaemon_CW()
                     TriNum+=2;
                 }
             }
-            if(ev.code == 0x01){OnWav = 0;m_Interrupt = 1;break;}
         }
         pthread_mutex_unlock(&mutex);
     }
@@ -386,29 +381,29 @@ int SoundDaemon_mod(int method)
     snd_pcm_sw_params_alloca(&swparams);
     
     if ((err = snd_output_stdio_attach(&output, stdout, 0)) < 0) {
-        printf("Output failed: %s\n", snd_strerror(err));
+        printf("[!] Output failed: %s\n", snd_strerror(err));
         return -1;
     }
     if ((err = snd_pcm_open(&handle, device, SND_PCM_STREAM_PLAYBACK, 0)) < 0) {
-        printf("Playback open error: %s\n", snd_strerror(err));
+        printf("[!] Playback open error: %s\n", snd_strerror(err));
         return -1;
     }
     
     if ((err = set_hwparams(handle, hwparams, transfer_methods[method].access)) < 0) {
-        printf("Setting of hwparams failed: %s\n", snd_strerror(err));
+        printf("[!] Setting of hwparams failed: %s\n", snd_strerror(err));
         return -1;
     }
     if ((err = set_swparams(handle, swparams)) < 0) {
-        printf("Setting of swparams failed: %s\n", snd_strerror(err));
+        printf("[!] Setting of swparams failed: %s\n", snd_strerror(err));
         return -1;
     }
     samples = malloc((period_size * channels * snd_pcm_format_physical_width(format)) / 8);
     if (samples == NULL) {
-        printf("No enough memory\n");
+        printf("[!] No enough memory. Error code: samples\n");
         return -1;
     }
     if ((areas = calloc(channels, sizeof(snd_pcm_channel_area_t))) == NULL) {
-        printf("No enough memory\n");
+        printf("[!] No enough memory. Error code: areas\n");
         return -1;
     }
     for (chn = 0; chn < channels; chn++) {
@@ -418,18 +413,35 @@ int SoundDaemon_mod(int method)
     }
     err = transfer_methods[method].transfer_loop(handle, samples, areas);
     if (err < 0){
-        printf("Transfer failed: %s\n", snd_strerror(err));
+        printf("[!] Transfer failed: %s\n", snd_strerror(err));
     }
     free(areas);
     free(samples);
-    snd_pcm_close(handle);printf("SoundDaemon closed.\n");
+    snd_pcm_close(handle);printf("[-] SoundDaemon closed.\n");
+    return 0;
+}
+
+void * getEnter()
+{
+    //inspect key value
+    while(1){
+        switch (getchar())
+        {
+            case 3:
+              pthread_mutex_lock(&mutex);OnWav = 0;m_Interrupt = 1;pthread_mutex_unlock(&mutex);printf("[!] Manually interrupted by Ctrl-C.\n");return 0;
+            case 0x1B:
+              pthread_mutex_lock(&mutex);OnWav = 0;m_Interrupt = 1;pthread_mutex_unlock(&mutex);return 0;
+            case '\n':
+              putchar('\n');break;
+        }
+    }
     return 0;
 }
 
 int main(int argc, char *argv[])
 {
-    int rc, rp, rs, countpf;
-    pthread_t CW_pid, SC_pid;
+    int rc, rp, rb, rs, countpf;
+    pthread_t CW_pid, SC_pid, BL_pid;
 
     pthread_mutex_init(&mutex,NULL);//initiate lock for global interchange.
 
@@ -437,22 +449,27 @@ int main(int argc, char *argv[])
     setbuf(stdout,NULL);
     system(INPUT_NODISP);
 
-    printf("\nYour scripts:\n\n");
+
     if((rc = pthread_create(&CW_pid, NULL, KeyDaemon_CW, NULL))<0){
-        printf("Fail to create KeyDaemon thread.\n");
+        printf("[!] Fail to create KeyDaemon thread.\n");
     }
+    while(!KeyEventAccess){sleep(0.5);}
     if((rp = pthread_create(&SC_pid, NULL, PrintDaemon, NULL))<0){
-        printf("Fail to create PrintDaemon thread.\n");
+        printf("[!] Fail to create PrintDaemon thread.\n");
+    }
+    if((rb = pthread_create(&BL_pid, NULL, getEnter, NULL))<0){
+        printf("[!] Fail to create KeyBlocker thread.\n");
+    }else{
+        printf("\n[+] KeyBlocker is on (press ENTER to start a new line)\n\nAll can be interrupted by ESC-ENTER.\n\nYour scripts:\n\n");
     }
     if((rs = SoundDaemon_mod(0))<0){
-        printf("SoundDaemon quit with errors.\n");
+        printf("[!] SoundDaemon quit with errors.\n");
     }
-    
-    pthread_join(SC_pid,NULL);printf("PrintDaemon closed.\n");
-    pthread_join(CW_pid,NULL);printf("KeyDaemon closed.\n");
-    pthread_mutex_destroy(&mutex);
-    printf("TU OM GB 73.\n");
 
+    pthread_join(SC_pid,NULL);printf("[-] PrintDaemon closed.\n");
+    pthread_mutex_destroy(&mutex);
+
+    pthread_join(BL_pid,NULL);printf("[-] KeyBlocker closed.\n");
     system(INPUT_NORMAL);
     return 0;
 }
