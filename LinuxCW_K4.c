@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.15.
+ *  LinuxCW K4 morse code trainer v1.17.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -317,6 +317,7 @@ void * ReadFile_AK()
         printf("Unable to read file.\n");return 0;
     }
     while((letter=fgetc(fin))!=EOF){
+      if(m_Interrupt){break;}
       switch(letter){
       case 'A':
       case 'a':
@@ -502,6 +503,11 @@ void * ReadFile_AK()
         PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DI);
         putchar(letter);usleep(usec_BGap);
         break;
+      case '.':
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);usleep(usec_SGap);
+        PressKey(usec_DI);usleep(usec_SGap);PressKey(usec_DA);
+        putchar(letter);usleep(usec_BGap);
+        break;
       default:
         putchar(letter);
         usleep(usec_BGap);
@@ -678,15 +684,14 @@ int main(int argc, char *argv[])
         {"rate", 1, NULL, 'r'},
         {"frequency", 1, NULL, 'f'},
         {"input", 1, NULL, 'i'},
+        {"wpm", 1, NULL, 'w'},
         {NULL, 0, NULL, 0}
     };
 
-    int rc, rp, rb, rs, countpf, Copt;
+    int rc, readmod = 0, wpm = 15, countpf, Copt;
     pthread_t CW_pid, SC_pid, BL_pid;
 
-    while (1) {
-        if ((Copt = getopt_long(argc, argv, "he:r:f:i:", long_option, NULL)) < 0)
-            break;
+    while (!((Copt = getopt_long(argc, argv, "he:r:f:i:w:", long_option, NULL)) < 0)) {
         switch (Copt) {
         case 'h':
             printf("Usage: %s [-option] [args]...\n",argv[0]);
@@ -707,12 +712,29 @@ int main(int argc, char *argv[])
             break;
         case 'i':
             sprintf(filename,"%s",optarg);
-            SoundDaemon_mod(1);
-            return 0;
+            readmod = 1;
+            break;
+        case 'w':
+            wpm = atoi(optarg);
+            wpm<5?5:wpm;
+            wpm>30?30:wpm;
+            usec_DI = wpm<15?(((15.0/wpm-1)*0.3+1)*usec_DI):(((15.0/wpm-1)*0.9+1)*usec_DI);
+            usec_DA = wpm<15?(((15.0/wpm-1)*0.3+1)*usec_DA):(((15.0/wpm-1)*0.9+1)*usec_DA);
+            usec_SGap = wpm<15?(((15.0/wpm-1)*0.2+1)*usec_SGap):(((15.0/wpm-1)*0.50+1)*usec_SGap);
+            usec_BGap = wpm<15?(((15.0/wpm-1)*2.0+1)*usec_BGap):(((15.0/wpm-1)*1.05+1)*usec_BGap);
+            break;
         }
     }
 
-
+    if(readmod){
+        if((rc = pthread_create(&BL_pid, NULL, getEnter, NULL))<0){
+            printf("[!] Fail to create KeyBlocker thread.\n");
+        }else{
+            printf("\n[+] KeyBlocker is on (press ENTER to start a new line)\n\nAll can be interrupted by ESC-ENTER.\n\nReading at %d-WPM:\n\n",wpm);
+        }
+        SoundDaemon_mod(1);
+        return 0;
+    }
     pthread_mutex_init(&mutex,NULL);//initiate lock for global interchange.
 
     for(countpf=3;countpf>0;countpf--){printf("Record will start in %d sec, please get ready...\n",countpf);sleep(1);}
@@ -724,15 +746,15 @@ int main(int argc, char *argv[])
         printf("[!] Fail to create KeyDaemon thread.\n");
     }
     while(!KeyEventAccess){sleep(0.5);}
-    if((rp = pthread_create(&SC_pid, NULL, PrintDaemon, NULL))<0){
+    if((rc = pthread_create(&SC_pid, NULL, PrintDaemon, NULL))<0){
         printf("[!] Fail to create PrintDaemon thread.\n");
     }
-    if((rb = pthread_create(&BL_pid, NULL, getEnter, NULL))<0){
+    if((rc = pthread_create(&BL_pid, NULL, getEnter, NULL))<0){
         printf("[!] Fail to create KeyBlocker thread.\n");
     }else{
         printf("\n[+] KeyBlocker is on (press ENTER to start a new line)\n\nAll can be interrupted by ESC-ENTER.\n\nYour scripts:\n\n");
     }
-    if((rs = SoundDaemon_mod(0))<0){
+    if((rc = SoundDaemon_mod(0))<0){
         printf("[!] SoundDaemon quit with errors.\n");
     }
     system(INPUT_NORMAL);
