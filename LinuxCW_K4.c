@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.17.
+ *  LinuxCW K4 morse code trainer v1.18.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,13 +18,10 @@
 
 #define INPUT_NODISP "stty -echo"
 #define INPUT_NORMAL "stty echo"
-#define MIN_TIME_DA 160000
-#define MAX_TIME_VAL 200000
-#define MAX_TIME_SPACE 500000
-
 #define INPUT_KEYBOARD "/dev/input/event"
 
 int EVENTnum = 3, usec_DI = 80000, usec_DA = 250000, usec_SGap = 50000, usec_BGap = 320000;
+int val_dida = 120000, val_char = 125000, val_space = 480000;
 
 const char* const TriMorse = "?ET?IA?NM????SU?RW????DK?GO?????????????HV?F?????L??PJ?????????????BX?CY????ZQ";
 const char* const PntaCode = "09?8???7?????/?61???????2???3?45";
@@ -553,7 +550,7 @@ void * KeyDaemon_CW()
                 TriNum*=3;
                 BinNum*=2;
                 gettimeofday(&keyDown_time,NULL);
-                if(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<MIN_TIME_DA){
+                if(1000000*(keyDown_time.tv_sec-keyUp_time.tv_sec)+(keyDown_time.tv_usec-keyUp_time.tv_usec)<val_dida){
                     TriNum+=1;
                     BinNum++;
                 }else{
@@ -577,7 +574,7 @@ void * PrintDaemon()
         if(!OnWav && !AFK_level){
             gettimeofday(&current_time,NULL);
             AFK_time = 1000000*(current_time.tv_sec-keyDown_time.tv_sec)+(current_time.tv_usec-keyDown_time.tv_usec);
-            if(WordLen && AFK_time>MAX_TIME_VAL){
+            if(WordLen && AFK_time>val_char){
                 if(WordLen<5){
                     putchar(TriMorse[TriNum]);
                 }else if(WordLen==5){
@@ -594,7 +591,7 @@ void * PrintDaemon()
                 }
                 WordLen=0;TriNum=0;BinNum=0;
             }
-            if(AFK_time>MAX_TIME_SPACE){
+            if(AFK_time>val_space){
                 putchar(' ');AFK_level=1;
             }
         }
@@ -681,22 +678,42 @@ int main(int argc, char *argv[])
     {
         {"help", 0, NULL, 'h'},
         {"event", 1, NULL, 'e'},
+        {"device", 1, NULL, 'd'},
         {"rate", 1, NULL, 'r'},
         {"frequency", 1, NULL, 'f'},
         {"input", 1, NULL, 'i'},
         {"wpm", 1, NULL, 'w'},
+        {"space", 1, NULL, 's'},
         {NULL, 0, NULL, 0}
     };
 
     int rc, readmod = 0, wpm = 15, countpf, Copt;
     pthread_t CW_pid, SC_pid, BL_pid;
 
-    while (!((Copt = getopt_long(argc, argv, "he:r:f:i:w:", long_option, NULL)) < 0)) {
+    while (!((Copt = getopt_long(argc, argv, "he:d:r:f:i:w:s:", long_option, NULL)) < 0)) {
         switch (Copt) {
         case 'h':
             printf("Usage: %s [-option] [args]...\n",argv[0]);
+            printf("Options:\n");
+            printf("  --help, -h           Display this help info.\n\n");
+            printf("Default [Num] will be set to 3 when unspecified.\n");
+            printf("  --event, -e [Num]    Specified input device as\n");
+            printf("                       /dev/input/event[Num]\n");
+            printf("  --device, -d [Num]   Same as --event, -e.\n\n");
+            printf("Default [SR] will be set to 44100 when unspecified.\n");
+            printf("  --rate, -r [SR]      Set audio sample rate to [SR]Hz.\n\n");
+            printf("Default [TF] will be set to 750 when unspecified.\n\n");
+            printf("  --frequency, -f [TF] Set tone frequency to [TF]Hz.\n\n");
+            printf("Keyboard or any devices traning mode when [FILE] unspecified.\n");
+            printf("  --input, -i [FILE]   Read text file [FILE] as Morse code.\n\n");
+            printf("Default [speed] and [sspeed] will be set to 15 when unspecified.\n\n");
+            printf("  --wpm, -w [speed]    Change the reading or preferred typing speed.\n");
+            printf("  --space, -s [sspeed] Change ONLY the speed of the space between words.\n\n");
+            printf("For beginners, the following setting is good for improving your hearing:\n");
+            printf("    %s -i [FILE] -w 15 -s 7\n",argv[0]);
             return 0;
         case 'e':
+        case 'd':
             EVENTnum = atoi(optarg);
             EVENTnum < 0 ? 0 : EVENTnum;
             break;
@@ -722,6 +739,14 @@ int main(int argc, char *argv[])
             usec_DA = wpm<15?(((15.0/wpm-1)*0.3+1)*usec_DA):(((15.0/wpm-1)*0.9+1)*usec_DA);
             usec_SGap = wpm<15?(((15.0/wpm-1)*0.2+1)*usec_SGap):(((15.0/wpm-1)*0.50+1)*usec_SGap);
             usec_BGap = wpm<15?(((15.0/wpm-1)*2.0+1)*usec_BGap):(((15.0/wpm-1)*1.05+1)*usec_BGap);
+            val_dida = 1.5*usec_DI; val_char = 2.5*usec_SGap; val_space = 1.5*usec_BGap;//resize type interval
+            break;
+        case 's':
+            wpm = atoi(optarg);
+            wpm<5?5:wpm;
+            wpm>30?30:wpm;
+            usec_BGap = wpm<15?(((15.0/wpm-1)*2.0+1)*usec_BGap):(((15.0/wpm-1)*1.05+1)*usec_BGap);
+            val_dida = 1.5*usec_DI; val_char = 2.5*usec_SGap; val_space = 1.5*usec_BGap;
             break;
         }
     }
