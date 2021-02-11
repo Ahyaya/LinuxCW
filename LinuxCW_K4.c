@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.18.
+ *  LinuxCW K4 morse code trainer v1.18x.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +47,26 @@ struct timeval keyUp_time, keyDown_time, current_time;
 pthread_mutex_t mutex;
 void * ReadFile_AK();
 char filename[64];
+
+int generate_cwtest()
+{
+    FILE* fp;
+    char CW_char[39]={44,46,48,49,50,51,52,53,54,55,56,57,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90};
+    srand(time(NULL));
+    if((fp=fopen(".CWtest","w"))==NULL){return -1;}
+    for(int pfline=0;pfline<5;pfline++)
+    {
+        for(int pfblock=0;pfblock<3;pfblock++)
+        {
+            for(int pf=0;pf<5;pf++)
+            {
+                fputc(CW_char[rand()%39],fp);
+            }fputc(' ',fp);
+        }fputc('\n',fp);
+    }
+    fclose(fp);
+    return 0;
+}
 
 static void generate_sine(const snd_pcm_channel_area_t *areas, 
               snd_pcm_uframes_t offset,
@@ -679,7 +699,9 @@ int main(int argc, char *argv[])
         {"help", 0, NULL, 'h'},
         {"event", 1, NULL, 'e'},
         {"device", 1, NULL, 'd'},
+        {"devices", 1, NULL, 'D'},
         {"rate", 1, NULL, 'r'},
+        {"randomread", 0, NULL, 'R'},
         {"frequency", 1, NULL, 'f'},
         {"input", 1, NULL, 'i'},
         {"wpm", 1, NULL, 'w'},
@@ -690,30 +712,32 @@ int main(int argc, char *argv[])
     int rc, readmod = 0, wpm = 15, countpf, Copt;
     pthread_t CW_pid, SC_pid, BL_pid;
 
-    while (!((Copt = getopt_long(argc, argv, "he:d:r:f:i:w:s:", long_option, NULL)) < 0)) {
+    while (!((Copt = getopt_long(argc, argv, "he:D:d:r:f:i:w:s:R", long_option, NULL)) < 0)) {
         switch (Copt) {
         case 'h':
             printf("Usage: %s [-option] [args]...\n",argv[0]);
             printf("Options:\n");
-            printf("  --help, -h           Display this help info.\n\n");
+            printf("  --help, -h           Display this help info.\n");
+            printf("  --randomread, -R     Random play a CW text.\n\n");
             printf("Default [Num] will be set to 3 when unspecified.\n");
             printf("  --event, -e [Num]    Specified input device as\n");
             printf("                       /dev/input/event[Num]\n");
-            printf("  --device, -d [Num]   Same as --event, -e.\n\n");
+            printf("  --device, -d, -D [Num]   Same as --event, -e.\n\n");
             printf("Default [SR] will be set to 44100 when unspecified.\n");
             printf("  --rate, -r [SR]      Set audio sample rate to [SR]Hz.\n\n");
             printf("Default [TF] will be set to 750 when unspecified.\n\n");
             printf("  --frequency, -f [TF] Set tone frequency to [TF]Hz.\n\n");
-            printf("Keyboard or any devices traning mode when [FILE] unspecified.\n");
+            printf("Use keyboard or any devices as input when [FILE] unspecified.\n");
             printf("  --input, -i [FILE]   Read text file [FILE] as Morse code.\n\n");
             printf("Default [speed] and [sspeed] will be set to 15 when unspecified.\n\n");
             printf("  --wpm, -w [speed]    Change the reading or preferred typing speed.\n");
             printf("  --space, -s [sspeed] Change ONLY the speed of the space between words.\n\n");
             printf("For beginners, the following setting is good for improving your hearing:\n");
-            printf("    %s -i [FILE] -w 15 -s 7\n",argv[0]);
+            printf("    %s -R -s 5\n",argv[0]);
             return 0;
         case 'e':
         case 'd':
+        case 'D':
             EVENTnum = atoi(optarg);
             EVENTnum < 0 ? 0 : EVENTnum;
             break;
@@ -729,6 +753,11 @@ int main(int argc, char *argv[])
             break;
         case 'i':
             sprintf(filename,"%s",optarg);
+            readmod = 1;
+            break;
+        case 'R':
+            sprintf(filename,".CWtest");
+            if(generate_cwtest()){printf("Unable to create .CWtest in the fold.\n");return 0;}
             readmod = 1;
             break;
         case 'w':
@@ -751,6 +780,8 @@ int main(int argc, char *argv[])
         }
     }
 
+    for(countpf=3;countpf>0;countpf--){printf("CW is coming in %d sec, please get ready...\n",countpf);sleep(1);}
+
     if(readmod){
         if((rc = pthread_create(&BL_pid, NULL, getEnter, NULL))<0){
             printf("[!] Fail to create KeyBlocker thread.\n");
@@ -761,8 +792,6 @@ int main(int argc, char *argv[])
         return 0;
     }
     pthread_mutex_init(&mutex,NULL);//initiate lock for global interchange.
-
-    for(countpf=3;countpf>0;countpf--){printf("Record will start in %d sec, please get ready...\n",countpf);sleep(1);}
 
     system(INPUT_NODISP);
 
