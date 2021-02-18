@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.18x.
+ *  LinuxCW K4 morse code trainer v1.19.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,17 +48,17 @@ pthread_mutex_t mutex;
 void * ReadFile_AK();
 char filename[64];
 
-int generate_cwtest()
+int generate_cwtest(int lines_ct, int blocks_ct, int inblock_ct)
 {
     FILE* fp;
     char CW_char[39]={44,46,48,49,50,51,52,53,54,55,56,57,63,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90};
     srand(time(NULL));
     if((fp=fopen(".CWtest","w"))==NULL){return -1;}
-    for(int pfline=0;pfline<5;pfline++)
+    for(int pfline=0;pfline<lines_ct;pfline++)
     {
-        for(int pfblock=0;pfblock<3;pfblock++)
+        for(int pfblock=0;pfblock<blocks_ct;pfblock++)
         {
-            for(int pf=0;pf<5;pf++)
+            for(int pf=0;pf<inblock_ct;pf++)
             {
                 fputc(CW_char[rand()%39],fp);
             }fputc(' ',fp);
@@ -706,19 +706,24 @@ int main(int argc, char *argv[])
         {"input", 1, NULL, 'i'},
         {"wpm", 1, NULL, 'w'},
         {"space", 1, NULL, 's'},
+        {"randmod",1,NULL,'m'},
         {NULL, 0, NULL, 0}
     };
 
     int rc, readmod = 0, wpm = 15, countpf, Copt;
     pthread_t CW_pid, SC_pid, BL_pid;
 
-    while (!((Copt = getopt_long(argc, argv, "he:D:d:r:f:i:w:s:R", long_option, NULL)) < 0)) {
+    while (!((Copt = getopt_long(argc, argv, "he:D:d:r:f:i:w:s:m:R", long_option, NULL)) < 0)) {
         switch (Copt) {
         case 'h':
             printf("Usage: %s [-option] [args]...\n",argv[0]);
             printf("Options:\n");
             printf("  --help, -h           Display this help info.\n");
-            printf("  --randomread, -R     Random play a CW text.\n\n");
+            printf("  --randomread, -R     Random play a CW text in 5-3-4,\n");
+            printf("                       which means 5 characters per block,\n");
+            printf("                       3 blocks per line, 4 total lines.\n");
+            printf("  --randmod, -m F23    Random play a CW text in 15-2-3,\n");
+            printf("                       more common setting could be A14.\n\n");
             printf("Default [Num] will be set to 3 when unspecified.\n");
             printf("  --event, -e [Num]    Specified input device as\n");
             printf("                       /dev/input/event[Num]\n");
@@ -757,8 +762,19 @@ int main(int argc, char *argv[])
             break;
         case 'R':
             sprintf(filename,".CWtest");
-            if(generate_cwtest()){printf("Unable to create .CWtest in the fold.\n");return 0;}
+            if(generate_cwtest(4,3,5)){printf("Unable to create .CWtest in the fold.\n");return 0;}
             readmod = 1;
+            break;
+        case 'm':
+            sprintf(filename,".CWtest");
+            int lines_ct=optarg[2]>'9'?(optarg[2]>'Z'?10+optarg[2]-'a':10+optarg[2]-'A'):optarg[2]-'0';
+            int blocks_ct=optarg[1]>'9'?(optarg[1]>'Z'?10+optarg[1]-'a':10+optarg[1]-'A'):optarg[1]-'0';
+            int inblock_ct=optarg[0]>'9'?(optarg[0]>'Z'?10+optarg[0]-'a':10+optarg[0]-'A'):optarg[0]-'0';
+            lines_ct<1?1:lines_ct;
+            blocks_ct<1?1:blocks_ct;
+            inblock_ct<1?1:inblock_ct;
+            if(generate_cwtest(lines_ct,blocks_ct,inblock_ct)){printf("Unable to create .CWtest in the fold.\n");return 0;}
+            printf("Read mod: %d - %d - %d\n",inblock_ct,blocks_ct,lines_ct);readmod = 1;
             break;
         case 'w':
             wpm = atoi(optarg);
