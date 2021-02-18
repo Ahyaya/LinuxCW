@@ -1,5 +1,5 @@
 /*
- *  LinuxCW K4 morse code trainer v1.19.
+ *  LinuxCW K4 morse code trainer v1.19x.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -691,6 +691,35 @@ void * getEnter()
     return 0;
 }
 
+int usage_print(char* pName)
+{
+    printf("Usage: %s [-option] [args]...\n",pName);
+    printf("Options:\n");
+    printf("  --help, -h           Display this help info.\n");
+    printf("  --randomread, -R     Random play a CW text in 5 x 3 x 4,\n");
+    printf("                       which means 5 characters per block,\n");
+    printf("                       3 blocks per line, 4 total lines.\n");
+    printf("  --randmod, -m [num]  E.g. [num]=F23 play CW in 15 x 2 x 3,\n");
+    printf("                       more common setting could be 814.\n\n");
+    printf("Default [Num] will be set to 3 when unspecified.\n");
+    printf("  --event, -e [Num]    Specified input device as\n");
+    printf("                       /dev/input/event[Num]\n");
+    printf("  --device, -d, -D [Num]   Same as --event, -e.\n\n");
+    printf("Default [SR] will be set to 44100 when unspecified.\n");
+    printf("  --rate, -r [SR]      Set audio sample rate to [SR]Hz.\n\n");
+    printf("Default [TF] will be set to 750 when unspecified.\n\n");
+    printf("  --frequency, -f [TF] Set tone frequency to [TF]Hz.\n\n");
+    printf("Use keyboard or any devices as input when [FILE] unspecified.\n");
+    printf("  --input, -i [FILE]   Read text file [FILE] as Morse code.\n\n");
+    printf("Default [speed] and [sspeed] will be set to 15 when unspecified.\n\n");
+    printf("  --wpm, -w [speed]    Change the reading or preferred typing speed.\n");
+    printf("  --space, -s [sspeed] Change ONLY the speed of the space between words.\n\n");
+    printf("For beginners, the following settings are good for improving your hearing:\n");
+    printf("    %s -R -s 5\n", pName);
+    printf("    %s -m F14 -s 8\n", pName);
+    return 0; 
+}
+
 int main(int argc, char *argv[])
 {
     setbuf(stdout,NULL);
@@ -711,35 +740,15 @@ int main(int argc, char *argv[])
     };
 
     int rc, readmod = 0, wpm = 15, countpf, Copt;
+    int lines_ct=4, blocks_ct=3, inblock_ct=5;
+
     pthread_t CW_pid, SC_pid, BL_pid;
 
     while (!((Copt = getopt_long(argc, argv, "he:D:d:r:f:i:w:s:m:R", long_option, NULL)) < 0)) {
         switch (Copt) {
         case 'h':
-            printf("Usage: %s [-option] [args]...\n",argv[0]);
-            printf("Options:\n");
-            printf("  --help, -h           Display this help info.\n");
-            printf("  --randomread, -R     Random play a CW text in 5-3-4,\n");
-            printf("                       which means 5 characters per block,\n");
-            printf("                       3 blocks per line, 4 total lines.\n");
-            printf("  --randmod, -m F23    Random play a CW text in 15-2-3,\n");
-            printf("                       more common setting could be A14.\n\n");
-            printf("Default [Num] will be set to 3 when unspecified.\n");
-            printf("  --event, -e [Num]    Specified input device as\n");
-            printf("                       /dev/input/event[Num]\n");
-            printf("  --device, -d, -D [Num]   Same as --event, -e.\n\n");
-            printf("Default [SR] will be set to 44100 when unspecified.\n");
-            printf("  --rate, -r [SR]      Set audio sample rate to [SR]Hz.\n\n");
-            printf("Default [TF] will be set to 750 when unspecified.\n\n");
-            printf("  --frequency, -f [TF] Set tone frequency to [TF]Hz.\n\n");
-            printf("Use keyboard or any devices as input when [FILE] unspecified.\n");
-            printf("  --input, -i [FILE]   Read text file [FILE] as Morse code.\n\n");
-            printf("Default [speed] and [sspeed] will be set to 15 when unspecified.\n\n");
-            printf("  --wpm, -w [speed]    Change the reading or preferred typing speed.\n");
-            printf("  --space, -s [sspeed] Change ONLY the speed of the space between words.\n\n");
-            printf("For beginners, the following setting is good for improving your hearing:\n");
-            printf("    %s -R -s 5\n",argv[0]);
-            return 0;
+           usage_print(argv[0]);
+           return 0;
         case 'e':
         case 'd':
         case 'D':
@@ -762,19 +771,17 @@ int main(int argc, char *argv[])
             break;
         case 'R':
             sprintf(filename,".CWtest");
-            if(generate_cwtest(4,3,5)){printf("Unable to create .CWtest in the fold.\n");return 0;}
-            readmod = 1;
+            printf("Random Mod: %d x %d x %d\n",inblock_ct,blocks_ct,lines_ct);readmod = 1;
             break;
         case 'm':
             sprintf(filename,".CWtest");
-            int lines_ct=optarg[2]>'9'?(optarg[2]>'Z'?10+optarg[2]-'a':10+optarg[2]-'A'):optarg[2]-'0';
-            int blocks_ct=optarg[1]>'9'?(optarg[1]>'Z'?10+optarg[1]-'a':10+optarg[1]-'A'):optarg[1]-'0';
-            int inblock_ct=optarg[0]>'9'?(optarg[0]>'Z'?10+optarg[0]-'a':10+optarg[0]-'A'):optarg[0]-'0';
+            lines_ct=optarg[2]>'9'?(optarg[2]>'Z'?10+optarg[2]-'a':10+optarg[2]-'A'):optarg[2]-'0';
+            blocks_ct=optarg[1]>'9'?(optarg[1]>'Z'?10+optarg[1]-'a':10+optarg[1]-'A'):optarg[1]-'0';
+            inblock_ct=optarg[0]>'9'?(optarg[0]>'Z'?10+optarg[0]-'a':10+optarg[0]-'A'):optarg[0]-'0';
             lines_ct<1?1:lines_ct;
             blocks_ct<1?1:blocks_ct;
             inblock_ct<1?1:inblock_ct;
-            if(generate_cwtest(lines_ct,blocks_ct,inblock_ct)){printf("Unable to create .CWtest in the fold.\n");return 0;}
-            printf("Read mod: %d - %d - %d\n",inblock_ct,blocks_ct,lines_ct);readmod = 1;
+            printf("Random Mod: %d x %d x %d\n",inblock_ct,blocks_ct,lines_ct);readmod = 1;
             break;
         case 'w':
             wpm = atoi(optarg);
@@ -799,6 +806,9 @@ int main(int argc, char *argv[])
     for(countpf=3;countpf>0;countpf--){printf("CW is coming in %d sec, please get ready...\n",countpf);sleep(1);}
 
     if(readmod){
+        if(generate_cwtest(lines_ct,blocks_ct,inblock_ct)){
+            printf("Unable to create .CWtest in the fold.\n");return 0;
+        }
         if((rc = pthread_create(&BL_pid, NULL, getEnter, NULL))<0){
             printf("[!] Fail to create KeyBlocker thread.\n");
         }else{
